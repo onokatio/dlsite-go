@@ -1,11 +1,14 @@
 package main
 
 import (
+	"io"
 	"fmt"
 	"log"
+	"strings"
 	"net/http"
 	"encoding/json"
 	"github.com/k0kubun/pp"
+	"astuart.co/goq"
 )
 
 
@@ -40,7 +43,7 @@ type LocalePriceStr struct {
 	Krw string `json:"KRW"`
 }
 
-type ProductResponse map[string]struct {
+type productAPIResponse map[string]struct {
 	SiteID        string `json:"site_id"`
 	SiteIDTouch   string `json:"site_id_touch"`
 	MakerID       string `json:"maker_id"`
@@ -94,8 +97,42 @@ type ProductResponse map[string]struct {
 	LocalePriceStr  LocalePriceStr`json:"locale_price_str"`
 }
 
+type productHTMLTableKV struct {
+	Key string `goquery:"th"`
+	Values []string `goquery:"td a:not(.btn_follow)"`
+}
+
+type productHTMLTable struct {
+	Outline []productHTMLTableKV `goquery:"table#work_outline > tbody > tr"`
+	Maker []productHTMLTableKV `goquery:"table#work_maker > tbody > tr"`
+}
+
+type Chobit struct {
+	struct {
+	Count int `json:"count"`
+	Works []struct {
+		WorkID       string `json:"work_id"`
+		DlsiteWorkID string `json:"dlsite_work_id"`
+		WorkName     string `json:"work_name"`
+		WorkNameKana string `json:"work_name_kana"`
+		URL          string `json:"url"`
+		EmbedURL     string `json:"embed_url"`
+		Thumb        string `json:"thumb"`
+		MiniThumb    string `json:"mini_thumb"`
+		FileType     string `json:"file_type"`
+		EmbedWidth   int    `json:"embed_width"`
+		EmbedHeight  int    `json:"embed_height"`
+	} `json:"works"`
+}
+
+type Product struct {
+	productAPIResponse
+	productTable map[string][]string
+	chobit Chobit
+}
+
 func main() {
-	productid := "RJ302659"
+	productid := "BJ301460"
 	url := fmt.Sprintf("https://www.dlsite.com/maniax/product/info/ajax?product_id=%s&cdn_cache_min=1",productid)
 	res, err := http.Get(url)
 	if err != nil {
@@ -103,10 +140,35 @@ func main() {
 	}
 	defer res.Body.Close()
 
-	var product ProductResponse
+	product := Product{}
+	json.NewDecoder(res.Body).Decode(&product.productAPIResponse)
 
-	json.NewDecoder(res.Body).Decode(&product)
+	res, err = http.Get("https://www.dlsite.com/maniax/work/=/product_id/BJ301460.html")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer res.Body.Close()
 
-	pp.Print(url)
-	pp.Print(product)
+	var table productHTMLTable
+	err = goq.NewDecoder(res.Body).Decode(&table)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	product.productTable = map[string][]string{}
+	for _, KV := range table.Maker {
+		product.productTable[KV.Key] = KV.Values
+	}
+	for _, KV := range table.Outline {
+		product.productTable[KV.Key] = KV.Values
+	}
+	pp.Println(product)
+
+	res, err = http.Get("https://chobit.cc/api/v1/dlsite/embed?workno=RJ302659")
+	defer res.Body.Close()
+	bytes, _ := io.ReadAll(res.Body)
+	str := strings.TrimPrefix(string(bytes),"response(")
+	str = strings.TrimSuffix(str,")")
+	strings.New
+	pp.Println(str)
 }
